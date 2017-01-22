@@ -1,0 +1,6 @@
+# Created by .ignore support plugin (hsz.mobi)
+.idea/
+presto-udf.iml
+target/
+urls.txt
+.DS_Store/
