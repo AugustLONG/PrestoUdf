@@ -1,4 +1,4 @@
-package com.reyun.presto.aggregation;
+package aggregation;
 
 import com.facebook.presto.operator.aggregation.state.SliceState;
 import com.facebook.presto.spi.block.BlockBuilder;
@@ -15,28 +15,19 @@ import java.util.*;
 /*
 计算漏斗的聚合函数, 步骤一
 
-查询12月1号到20号20天(最大60天), 时间窗口为3天(最大7天)的漏斗:
+查询12月1号到20号20天, 时间窗口为3天的漏斗:
 select ld_sum(temp, 3) from(
-select ld_count(
-xwhen,
-20,
-3*86400,
-1480521600,
-xwhat,
-'Action,loggedin,payment') as temp
-from orc_event_4f4825dde448c06fcdd15be294a7558b
+select ld_count(xwhen, 20, 3*86400, 1480521600, xwhat, 'Action,loggedin,payment') as temp from tablename
 where ds >= '2016-12-01'
 and (
     (xwhat = 'Action' and ds <= '2016-12-20') or
     (xwhat in ('loggedin', 'payment') and ds <= '2016-12-22')
 ) group by xwho);
-
-效率: 5.0-5.5秒左右
  */
 @AggregationFunction("ld_count")
-public class RYAggregationLDCount extends RYAggregationBase {
+public class AggregationLDCount extends AggregationBase {
 
-    private static final int COUNT_ONE_LENGTH = 5;          // input中每个事件所占位数, 包含一个int和一个byte
+    private static final int COUNT_ONE_LENGTH = 5;          // input中每个事件所占位数, 包含一个int(时间戳)和一个byte(下标)
     private static final int COUNT_FLAG_LENGTH = 5 * 4;     // 状态slice最前边的5位存放临时变量, 每个临时变量都为int类型
 
     @InputFunction
@@ -83,7 +74,7 @@ public class RYAggregationLDCount extends RYAggregationBase {
             retained += 50;
         }
 
-        // 更新变量--每个事件的时间和下标
+        // 更新变量--每个事件的时间戳和下标
         slice.setInt(index, (int) xwhen);
         slice.setByte(index + 4, event_pos_dict.get(events).get(xwhat));
 
@@ -129,6 +120,7 @@ public class RYAggregationLDCount extends RYAggregationBase {
         // 获取状态
         Slice slice = state.getSlice();
         if (null == slice) {
+            // 数据为空，返回一个空数组
             BlockBuilder blockBuilder = BigintType.BIGINT.createBlockBuilder(new BlockBuilderStatus(), 0);
             out.writeObject(blockBuilder.build());
             out.closeEntry();
@@ -142,16 +134,16 @@ public class RYAggregationLDCount extends RYAggregationBase {
 
         // 构造列表和字典
         List<Integer> time_array = new ArrayList<>();
-        Map<Integer, Byte> xwhat_map = new HashMap<>();
+        Map<Integer, Byte> time_xwhat_map = new HashMap<>();
         for (int i = COUNT_FLAG_LENGTH; i < slice.length(); i += COUNT_ONE_LENGTH) {
             int timestamp = slice.getInt(i);
-            if (timestamp <= 0) {
-                break;
-            }
 
-            // 赋值
+            // 如果不走combine过程，时间戳可能为0
+            if (timestamp <= 0) break;
+
+            // 赋值time_array和time_xwhat_map
             time_array.add(timestamp);
-            xwhat_map.put(timestamp, slice.getByte(i + 4));
+            time_xwhat_map.put(timestamp, slice.getByte(i + 4));
         }
 
         // 排序时间戳数组
@@ -161,10 +153,11 @@ public class RYAggregationLDCount extends RYAggregationBase {
         List<int[]> temp = new ArrayList<>();
         for (int timestamp: time_array) {
             // 事件有序进入
-            byte xwhat = xwhat_map.get(timestamp);
+            byte xwhat = time_xwhat_map.get(timestamp);
             if (xwhat == 0) {
-                // 新建临时对象, 最后一位存放事件步骤数
+                // 新建临时对象, 存放每一个事件的时间戳, 最后一位存放事件步骤数
                 int[] flag = new int[MAX_COUNT_BYTE + 1];
+                // 临时对象赋值
                 flag[0] = timestamp;
                 flag[MAX_COUNT_BYTE] = 1;
                 temp.add(flag);
@@ -178,7 +171,7 @@ public class RYAggregationLDCount extends RYAggregationBase {
                     } else {
                         // 当前事件的时间减去flag[0]合法
                         if (flag[xwhat - 1] > 0 && flag[xwhat] == 0) {
-                            // 当前事件的上一个事件存在, 并且不存在当前事件, 跳出
+                            // 当前事件的上一个事件存在, 并且不存在当前事件, 更新数据，并跳出
                             flag[xwhat] = timestamp;
                             flag[MAX_COUNT_BYTE] = xwhat + 1;
                             break;
@@ -188,10 +181,13 @@ public class RYAggregationLDCount extends RYAggregationBase {
             }
         }
 
-        // 构造结果, 存放每一天的最大步骤数, 最后一个结果为总步骤数
+        // 构造结果, 存放每一天的最大步骤数, 最后一位为总步骤数
         int[] result = new int[day_length + 1];
         for (int[] flag: temp) {
+            // 计算是具体哪一天
             int index = (flag[0] - start_day) / 86400;
+
+            // 时间戳和ds分布不一致导致该问题
             if (index < 0 || index >= day_length) {
                 continue;
             }
@@ -199,13 +195,13 @@ public class RYAggregationLDCount extends RYAggregationBase {
             // 更新变量
             if (result[index] < flag[MAX_COUNT_BYTE]) {
                 result[index] = flag[MAX_COUNT_BYTE];
-                if (result[index] > result[day_length]) {
-                    result[day_length] = result[index];
+                if (result[day_length] < flag[MAX_COUNT_BYTE]) {
+                    result[day_length] = flag[MAX_COUNT_BYTE];
                 }
             }
         }
 
-        // 返回结果
+        // 返回结果, 返回每一天的最大步骤数, 最后一位为总步骤数
         BlockBuilder blockBuilder = BigintType.BIGINT.createBlockBuilder(new BlockBuilderStatus(), day_length + 1);
         for(int flag : result) {
             BigintType.BIGINT.writeLong(blockBuilder, flag);

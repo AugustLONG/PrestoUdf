@@ -1,4 +1,4 @@
-package com.reyun.presto.aggregation;
+package aggregation;
 
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
@@ -8,22 +8,23 @@ import java.util.*;
 
 /*
 漏斗及留存的基类
+限制条件：查询的事件个数最大为7个
  */
-public class RYAggregationBase {
+public class AggregationBase {
 
     // 日志记录
-    public static final Logger logger = Logger.get(RYAggregationBase.class);
+    public static final Logger logger = Logger.get(AggregationBase.class);
 
-    // 静态数值, 一个byte的长度: 漏斗最大支持事件数、漏斗支持的窗口最大天数、留存第一个事件最大的时间间隔
+    // 静态数值, 一个byte的长度
     public static final int MAX_COUNT_BYTE = 7;
 
-    // 静态数值, 一个short的长度:
+    // 静态数值, 一个short的长度
     public static final int MAX_COUNT_SHORT = 15;
 
-    // 静态数值, 一个int的长度:
+    // 静态数值, 一个int的长度
     public static final int MAX_COUNT_INT = 31;
 
-    // 静态数值, 一个long的长度: 漏斗支持的最大天数、留存最大支持的天数
+    // 静态数值, 一个long的长度
     public static final int MAX_COUNT_LONG = 63;
 
     // 用于判断某一位为0或1的变量(byte类型): [1, 2, 4, ..., 64]
@@ -95,23 +96,22 @@ public class RYAggregationBase {
         }
     }
 
-    // ====================================== 漏斗需要 =======================================
+    // =================================================== 漏斗需要 =====================================================
     // 查询漏斗中, 事件和下标的对应关系: {events: {event: index, ...}, ....}
     public static Map<Slice, Map<Slice, Byte>> event_pos_dict = new HashMap<>();
 
     // 查询漏斗中, 初始化事件(最多7个事件)
     public static void init_events(Slice events) {
-        // 初始化当前events的变量
         List<String> fs = Arrays.asList(new String(events.getBytes()).split(","));
 
-        // 赋值event_pos_dict
         Map<Slice, Byte> pos_dict = new HashMap<>();
-        for (int i = 0; i < fs.size(); ++i) {
-            pos_dict.put(Slices.utf8Slice(fs.get(i)), (byte) i);
+        for (byte i = 0; i < fs.size(); ++i) {
+            pos_dict.put(Slices.utf8Slice(fs.get(i)), i);
         }
         event_pos_dict.put(events, pos_dict);
     }
 
     public static void main(String argus[]){
+
     }
 }

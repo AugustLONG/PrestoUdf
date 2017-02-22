@@ -14,7 +14,6 @@ public class QTest {
 }
 
 /*
-
 项目打包, 并发送jar包到etl服务器
 mvn clean compile assembly:assembly
 scp -i ~/etl_emr.pem target/prestoudf-jar-with-dependencies.jar ec2-user@ec2-54-223-136-157.cn-north-1.compute.amazonaws.com.cn:/tmp

@@ -1,12 +1,12 @@
-package com.reyun.presto.aggregation;
+package aggregation;
 
 import com.facebook.presto.operator.aggregation.state.SliceState;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.block.BlockBuilderStatus;
-import com.facebook.presto.spi.function.*;
 import com.facebook.presto.spi.type.BigintType;
 import com.facebook.presto.spi.type.StandardTypes;
+import com.facebook.presto.spi.function.*;
 
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
@@ -14,41 +14,44 @@ import io.airlift.slice.Slices;
 import static com.facebook.presto.spi.type.TypeUtils.readNativeValue;
 
 /*
-计算漏斗的聚合函数, 步骤二
-
-查询12月1号到20号20天(最大60天), 时间窗口为3天(最大7天)的漏斗:
-select ld_sum(temp, 3) from (...);
-
-效率: 5.0秒左右
+计算留存(日留存、周留存、月留存)的聚合函数, 步骤二
  */
-@AggregationFunction("ld_sum")
-public class RYAggregationLDSum extends RYAggregationBase {
+@AggregationFunction("lc_sum")
+public class AggregationLCSum extends AggregationBase {
 
     @InputFunction
     public static void input(SliceState state,
                              @SqlType("array(" + StandardTypes.BIGINT + ")") Block xwho_count,  // 每个用户的状态
-                             @SqlType(StandardTypes.INTEGER) long events_count) {               // 查询事件的个数
-        // 获取state状态
+                             @SqlType(StandardTypes.INTEGER) long base_length,      // 当前查询的base长度(15, 12, 6)
+                             @SqlType(StandardTypes.INTEGER) long sub_length) {     // 当前查询的sub长度(30, 8, 3)
+        // 获取状态
         Slice slice = state.getSlice();
 
-        // 获取int类型的事件个数
-        int events_length = (int) events_count;
-
-        // 获取用户状态: [1, 2, 0, 0, 2], 这里的day_length包含总数据
-        int day_length = xwho_count.getPositionCount();
-
-        // 初始化state, 长度为(day_length * events_length)个int
+        // 初始化state, 长度为(base_length * sub_length + base_length)个int
         if (null == slice) {
-            slice = Slices.allocate(day_length * events_length * 4);
+            slice = Slices.allocate((int) (base_length * sub_length + base_length) * 4);
         }
 
-        for(int day = 0; day < day_length; ++day) {
-            // 读取每一天的状态, 包含总状态
-            long day_status = (long) readNativeValue(BigintType.BIGINT, xwho_count, day);
-            for (int status = 0; status < day_status; ++status) {
-                // 更新计数
-                int index = (day * events_length + status) * 4;
-                slice.setInt(index, slice.getInt(index) + 1);
+        // 获取值
+        long base_value = (long) readNativeValue(BigintType.BIGINT, xwho_count, 0);
+        long sub_value = (long) readNativeValue(BigintType.BIGINT, xwho_count, 1);
+
+        // 计算状态
+        for (int i = 0; i < base_length; ++i) {
+            // 判断是否更改base计数
+            if ((base_value & bit_array_long.get(i)) != 0) {
+                // 第一个事件存在, 更改base计数
+                int base_index = (int) (base_length * sub_length + i) * 4;
+                slice.setInt(base_index, slice.getInt(base_index) + 1);
+
+                // 判断是否更改sub计数
+                for (int j = i; j < i + sub_length; ++j) {
+                    if ((sub_value & bit_array_long.get(j)) != 0) {
+                        // 第二个事件存在, 更改sub计数
+                        int sub_index = (int) (i * sub_length + (j - i)) * 4;
+                        slice.setInt(sub_index, slice.getInt(sub_index) + 1);
+                    }
+                }
             }
         }
 
@@ -84,7 +87,7 @@ public class RYAggregationLDSum extends RYAggregationBase {
             return;
         }
 
-        // 构造结果: 每一天的事件漏斗[A:100, B:50, C:10, A:120, ......], 最后为总的事件漏斗
+        // 构造结果: base_length日/周/月中每日/周/月的sub_length留存数, 最后为base_length日/周/月的总用户数
         BlockBuilder blockBuilder = BigintType.BIGINT.createBlockBuilder(new BlockBuilderStatus(), slice.length() / 4);
         for (int index = 0; index < slice.length(); index += 4) {
             BigintType.BIGINT.writeLong(blockBuilder, slice.getInt(index));
