@@ -2,8 +2,6 @@ package aggregation;
 
 import com.facebook.presto.operator.aggregation.state.SliceState;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.block.BlockBuilderStatus;
-import com.facebook.presto.spi.type.BigintType;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.function.*;
 
@@ -17,7 +15,7 @@ import java.util.*;
 
 查询12月1号到20号20天, 时间窗口为3天的漏斗:
 select ld_sum(temp, 3) from(
-select ld_count(xwhen, 20, 3*86400, 1480521600, xwhat, 'Action,loggedin,payment') as temp from tablename
+select ld_count(xwhen, 3*86400, 1480521600000, 1482249600000, xwhat, 'Action,loggedin,payment') as temp from tablename
 where ds >= '2016-12-01'
 and (
     (xwhat = 'Action' and ds <= '2016-12-20') or
@@ -28,16 +26,21 @@ and (
 public class AggregationLDCount extends AggregationBase {
 
     private static final int COUNT_ONE_LENGTH = 5;          // input中每个事件所占位数, 包含一个int(时间戳)和一个byte(下标)
-    private static final int COUNT_FLAG_LENGTH = 5 * 4;     // 状态slice最前边的5位存放临时变量, 每个临时变量都为int类型
+    private static final int COUNT_FLAG_LENGTH = 3 * 4;     // 状态slice最前边的3位存放临时变量, 每个临时变量都为int类型
 
     @InputFunction
     public static void input(SliceState state,                                  // 每个用户的状态
-                             @SqlType(StandardTypes.BIGINT) long xwhen,         // 当前事件的时间戳
-                             @SqlType(StandardTypes.INTEGER) long day_length,   // 当前查询的总天数(1-60)
-                             @SqlType(StandardTypes.INTEGER) long win_length,   // 当前查询的时间窗口大小(1-7) * 86400
-                             @SqlType(StandardTypes.INTEGER) long start_day,    // 当前查询的起始日期的时间戳
+                             @SqlType(StandardTypes.BIGINT) long xwhen,         // 当前事件的时间戳, 精确到毫秒
+                             @SqlType(StandardTypes.INTEGER) long win_length,   // 当前查询的时间窗口大小(1-7) * 86400000
+                             @SqlType(StandardTypes.INTEGER) long start_day,    // 当前查询的起始日期的时间戳, 精确到毫秒
+                             @SqlType(StandardTypes.INTEGER) long end_day,      // 当前查询的结束日期的时间戳, 精确到毫秒
                              @SqlType(StandardTypes.VARCHAR) Slice xwhat,       // 当前事件的名称, A还是B或者C
                              @SqlType(StandardTypes.VARCHAR) Slice events) {    // 当前查询的全部事件, 逗号分隔
+        // 过滤不合适的事件
+        if ((xwhen < start_day) || (xwhen >= end_day)) {
+            return;
+        }
+
         // 获取状态
         Slice slice = state.getSlice();
 
@@ -51,12 +54,10 @@ public class AggregationLDCount extends AggregationBase {
             // 初始化slice, 第一次初始化100个COUNT_ONE_LENGTH
             slice = Slices.allocate(COUNT_FLAG_LENGTH + 100 * COUNT_ONE_LENGTH);
 
-            // 存放前5位int类型临时变量
+            // 存放前3位int类型临时变量
             slice.setInt(0, 100);                   // 第1个int存放剩余个数, 每次-1
             slice.setInt(4, COUNT_FLAG_LENGTH);     // 第2个int存放当前下标, 每次+5
-            slice.setInt(8, (int) day_length);      // 第3个int存放day_length总天数
-            slice.setInt(12, (int) win_length);     // 第4个int存放win_length窗口大小
-            slice.setInt(16, (int) start_day);      // 第5个int存放start_day(时间戳)
+            slice.setInt(8, (int) win_length);      // 第3个int存放win_length窗口大小
         }
 
         // 获取中间变量
@@ -115,22 +116,19 @@ public class AggregationLDCount extends AggregationBase {
         }
     }
 
-    @OutputFunction("array(" + StandardTypes.BIGINT + ")")
+    @OutputFunction(StandardTypes.INTEGER)
     public static void output(SliceState state, BlockBuilder out) {
         // 获取状态
         Slice slice = state.getSlice();
         if (null == slice) {
             // 数据为空，返回一个空数组
-            BlockBuilder blockBuilder = BigintType.BIGINT.createBlockBuilder(new BlockBuilderStatus(), 0);
-            out.writeObject(blockBuilder.build());
+            out.writeInt(0);
             out.closeEntry();
             return;
         }
 
         // 获取中间变量
-        int day_length = slice.getInt(8);
-        int win_length = slice.getInt(12);
-        int start_day = slice.getInt(16);
+        int win_length = slice.getInt(8);
 
         // 构造列表和字典
         List<Integer> time_array = new ArrayList<>();
@@ -181,32 +179,16 @@ public class AggregationLDCount extends AggregationBase {
             }
         }
 
-        // 构造结果, 存放每一天的最大步骤数, 最后一位为总步骤数
-        int[] result = new int[day_length + 1];
+        // 构造结果, 存放总步骤数
+        int result = 0;
         for (int[] flag: temp) {
-            // 计算是具体哪一天
-            int index = (flag[0] - start_day) / 86400;
-
-            // 时间戳和ds分布不一致导致该问题
-            if (index < 0 || index >= day_length) {
-                continue;
-            }
-
-            // 更新变量
-            if (result[index] < flag[MAX_COUNT_BYTE]) {
-                result[index] = flag[MAX_COUNT_BYTE];
-                if (result[day_length] < flag[MAX_COUNT_BYTE]) {
-                    result[day_length] = flag[MAX_COUNT_BYTE];
-                }
+            if (result < flag[MAX_COUNT_BYTE]) {
+                result = flag[MAX_COUNT_BYTE];
             }
         }
 
-        // 返回结果, 返回每一天的最大步骤数, 最后一位为总步骤数
-        BlockBuilder blockBuilder = BigintType.BIGINT.createBlockBuilder(new BlockBuilderStatus(), day_length + 1);
-        for(int flag : result) {
-            BigintType.BIGINT.writeLong(blockBuilder, flag);
-        }
-        out.writeObject(blockBuilder.build());
+        // 返回结果
+        out.writeInt(result);
         out.closeEntry();
     }
 }

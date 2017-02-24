@@ -1,7 +1,6 @@
 package aggregation;
 
 import com.facebook.presto.operator.aggregation.state.SliceState;
-import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.block.BlockBuilderStatus;
 import com.facebook.presto.spi.function.*;
@@ -11,8 +10,6 @@ import com.facebook.presto.spi.type.StandardTypes;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 
-import static com.facebook.presto.spi.type.TypeUtils.readNativeValue;
-
 /*
 计算漏斗的聚合函数, 步骤二
 */
@@ -21,30 +18,23 @@ public class AggregationLDSum extends AggregationBase {
 
     @InputFunction
     public static void input(SliceState state,
-                             @SqlType("array(" + StandardTypes.BIGINT + ")") Block xwho_count,  // 每个用户的状态
-                             @SqlType(StandardTypes.INTEGER) long events_count) {               // 查询事件的个数
+                             @SqlType(StandardTypes.INTEGER) long xwho_count,       // 每个用户的状态
+                             @SqlType(StandardTypes.INTEGER) long events_count) {   // 查询事件的个数
         // 获取state状态
         Slice slice = state.getSlice();
 
         // 获取int类型的事件个数
         int events_length = (int) events_count;
 
-        // 获取用户状态: [1, 2, 1, 0, 2], 数值为每一天的最大步骤数, 包含总步骤数
-        int day_length = xwho_count.getPositionCount();
-
-        // 初始化state, 长度为(day_length * events_length)个int
+        // 初始化state, 长度为events_length个int
         if (null == slice) {
-            slice = Slices.allocate(day_length * events_length * 4);
+            slice = Slices.allocate(events_length * 4);
         }
 
-        for(int day = 0; day < day_length; ++day) {
-            // 读取每一天的状态
-            long day_status = (long) readNativeValue(BigintType.BIGINT, xwho_count, day);
-            for (int status = 0; status < day_status; ++status) {
-                // 更新计数, 每一位加一
-                int index = (day * events_length + status) * 4;
-                slice.setInt(index, slice.getInt(index) + 1);
-            }
+        // 计算
+        for (int status = 0; status < xwho_count; ++status) {
+            int index = status * 4;
+            slice.setInt(index, slice.getInt(index) + 1);
         }
 
         // 返回状态
@@ -80,7 +70,7 @@ public class AggregationLDSum extends AggregationBase {
             return;
         }
 
-        // 构造结果: 每一天的事件漏斗[A:100, B:50, C:10, A:120, ......], 最后为总的事件漏斗
+        // 构造结果: [A:100, B:50, C:10, A:120, ......]
         BlockBuilder blockBuilder = BigintType.BIGINT.createBlockBuilder(new BlockBuilderStatus(), slice.length() / 4);
         for (int index = 0; index < slice.length(); index += 4) {
             BigintType.BIGINT.writeLong(blockBuilder, slice.getInt(index));
