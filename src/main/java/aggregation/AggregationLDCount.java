@@ -35,9 +35,9 @@ public class AggregationLDCount extends AggregationBase {
     @InputFunction
     public static void input(SliceState state,                                  // 每个用户的状态
                              @SqlType(StandardTypes.BIGINT) long xwhen,         // 当前事件的时间戳, 精确到毫秒
-                             @SqlType(StandardTypes.INTEGER) long win_length,   // 当前查询的时间窗口大小, 精确到毫秒
-                             @SqlType(StandardTypes.INTEGER) long start_day,    // 当前查询的起始日期的时间戳, 精确到毫秒
-                             @SqlType(StandardTypes.INTEGER) long end_day,      // 当前查询的结束日期的时间戳, 精确到毫秒
+                             @SqlType(StandardTypes.BIGINT) long win_length,    // 当前查询的时间窗口大小, 精确到毫秒
+                             @SqlType(StandardTypes.BIGINT) long start_day,     // 当前查询的起始日期的时间戳, 精确到毫秒
+                             @SqlType(StandardTypes.BIGINT) long end_day,       // 当前查询的结束日期的时间戳, 精确到毫秒
                              @SqlType(StandardTypes.VARCHAR) Slice xwhat,       // 当前事件的名称, A还是B或者C
                              @SqlType(StandardTypes.VARCHAR) Slice events) {    // 当前查询的全部事件, 逗号分隔
         // 过滤不合适的事件

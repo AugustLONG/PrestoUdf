@@ -9,17 +9,8 @@ public class QTest {
 
 /*
 项目打包, 并发送jar包到etl服务器
-mvn clean compile assembly:assembly
-scp -i ~/etl_emr.pem target/prestoudf-jar-with-dependencies.jar ec2-user@ip:/tmp
-
-ansible emr,dn -m shell -a  'sudo rm -rf /usr/lib/presto/plugin/prestoudf-jar-with-dependencies.jar' --private-key ~/etl.pem
-ansible emr,dn -m shell -a  'sudo ls /usr/lib/presto/plugin/' --private-key ~/etl.pem
-ansible emr,dn -m copy -a "src=/tmp/prestoudf-jar-with-dependencies.jar dest=/usr/lib/presto/plugin/" --sudo --private-key ~/etl.pem
-ansible emr,dn -m shell -a  'sudo ls /usr/lib/presto/plugin/' --private-key ~/etl.pem
-
-ansible emr,dn -m shell -a  'sudo stop presto-server' --private-key ~/etl.pem
-ansible emr,dn -m shell -a  'sudo start presto-server' --private-key ~/etl.pem
-ansible emr,dn -m shell -a  'sudo status presto-server' --private-key ~/etl.pem
+scp target/prestoudf-jar-with-dependencies.jar isuhadoop@192.168.220.145:/tmp
+/usr/lib/presto/bin/presto-cli --catalog hive --server 192.168.220.136:8285
 
 查询日志结果
 ansible emr,dn -m shell -a  'cat /var/log/presto/server.log | grep "output long called"' --private-key ~/etl.pem | more
@@ -30,3 +21,24 @@ set session processing_optimization='columnar';
 set session optimize_metadata_queries=true;
 set session task_concurrency=32;
 */
+
+/*
+CREATE TABLE `events2_orc_b2`(
+  `xwho` BIGINT,
+  `xwhen` string,
+  `xwhere` string,
+  `xwhat` string,
+  `xcontext` map<string,string>)
+PARTITIONED BY (
+  `appid` string,
+  `ds` string)
+stored as orc
+TBLPROPERTIES
+('orc.create.index'='true',
+"orc.compress"="snappy",
+"orc.stripe.size"="268435456",
+"orc.row.index.stride"="10000")
+
+
+insert into tablename select * from tablename where ds = '2016-12-01' order by xwhen;
+ */
