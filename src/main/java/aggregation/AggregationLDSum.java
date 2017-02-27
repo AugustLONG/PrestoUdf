@@ -70,7 +70,7 @@ public class AggregationLDSum extends AggregationBase {
             return;
         }
 
-        // 构造结果: [A:100, B:50, C:10, A:120, ......]
+        // 构造结果: [A:100, B:50, C:10, ......]
         BlockBuilder blockBuilder = BigintType.BIGINT.createBlockBuilder(new BlockBuilderStatus(), slice.length() / 4);
         for (int index = 0; index < slice.length(); index += 4) {
             BigintType.BIGINT.writeLong(blockBuilder, slice.getInt(index));

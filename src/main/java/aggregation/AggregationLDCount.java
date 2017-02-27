@@ -15,7 +15,11 @@ import java.util.*;
 
 查询12月1号到20号20天, 时间窗口为3天的漏斗:
 select ld_sum(temp, 3) from(
-select ld_count(xwhen, 3*86400, 1480521600000, 1482249600000, xwhat, 'Action,loggedin,payment') as temp from tablename
+select ld_count(
+xwhen,
+3*86400000,
+1480521600000, 1482249600000,
+xwhat, 'Action,loggedin,payment') as temp from tablename
 where ds >= '2016-12-01'
 and (
     (xwhat = 'Action' and ds <= '2016-12-20') or
@@ -31,7 +35,7 @@ public class AggregationLDCount extends AggregationBase {
     @InputFunction
     public static void input(SliceState state,                                  // 每个用户的状态
                              @SqlType(StandardTypes.BIGINT) long xwhen,         // 当前事件的时间戳, 精确到毫秒
-                             @SqlType(StandardTypes.INTEGER) long win_length,   // 当前查询的时间窗口大小(1-7) * 86400000
+                             @SqlType(StandardTypes.INTEGER) long win_length,   // 当前查询的时间窗口大小, 精确到毫秒
                              @SqlType(StandardTypes.INTEGER) long start_day,    // 当前查询的起始日期的时间戳, 精确到毫秒
                              @SqlType(StandardTypes.INTEGER) long end_day,      // 当前查询的结束日期的时间戳, 精确到毫秒
                              @SqlType(StandardTypes.VARCHAR) Slice xwhat,       // 当前事件的名称, A还是B或者C
@@ -120,8 +124,9 @@ public class AggregationLDCount extends AggregationBase {
     public static void output(SliceState state, BlockBuilder out) {
         // 获取状态
         Slice slice = state.getSlice();
+
+        // 数据为空，返回0
         if (null == slice) {
-            // 数据为空，返回一个空数组
             out.writeInt(0);
             out.closeEntry();
             return;
@@ -130,21 +135,42 @@ public class AggregationLDCount extends AggregationBase {
         // 获取中间变量
         int win_length = slice.getInt(8);
 
-        // 构造列表和字典
+        // 添加中间变量, 尝试提高效率
+        boolean is_a = false;
+        boolean is_b = false;
+
+        // 构造列表和字典, 为下边排序做准备
         List<Integer> time_array = new ArrayList<>();
         Map<Integer, Byte> time_xwhat_map = new HashMap<>();
         for (int i = COUNT_FLAG_LENGTH; i < slice.length(); i += COUNT_ONE_LENGTH) {
             int timestamp = slice.getInt(i);
+            if (timestamp <= 0) {
+                // 如果不走combine过程，时间戳可能为0
+                break;
+            }
 
-            // 如果不走combine过程，时间戳可能为0
-            if (timestamp <= 0) break;
+            // 获取事件
+            byte xwhat = slice.getByte(i + 4);
+            if (xwhat == 0) is_a = true;
+            if (xwhat == 1) is_b = true;
 
             // 赋值time_array和time_xwhat_map
             time_array.add(timestamp);
-            time_xwhat_map.put(timestamp, slice.getByte(i + 4));
+            time_xwhat_map.put(timestamp, xwhat);
         }
 
-        // 排序时间戳数组
+        // 判断是否符合要求
+        if (!is_a) {
+            out.writeInt(0);
+            out.closeEntry();
+            return;
+        } else if (!is_b) {
+            out.writeInt(1);
+            out.closeEntry();
+            return;
+        }
+
+        // 排序时间戳数组, 这里可能比较耗时
         Collections.sort(time_array);
 
         // 遍历时间戳数据
@@ -153,11 +179,8 @@ public class AggregationLDCount extends AggregationBase {
             // 事件有序进入
             byte xwhat = time_xwhat_map.get(timestamp);
             if (xwhat == 0) {
-                // 新建临时对象, 存放每一个事件的时间戳, 最后一位存放事件步骤数
-                int[] flag = new int[MAX_COUNT_BYTE + 1];
-                // 临时对象赋值
-                flag[0] = timestamp;
-                flag[MAX_COUNT_BYTE] = 1;
+                // 新建临时对象, 存放 (A事件的时间戳, 当前最后一个事件的下标)
+                int[] flag = {timestamp, 0};
                 temp.add(flag);
             } else {
                 // 更新临时对象: 从后往前, 并根据条件适当跳出
@@ -166,29 +189,25 @@ public class AggregationLDCount extends AggregationBase {
                     if ((timestamp - flag[0]) >= win_length) {
                         // 当前事件的时间减去flag[0]不合法, 跳出
                         break;
-                    } else {
-                        // 当前事件的时间减去flag[0]合法
-                        if (flag[xwhat - 1] > 0 && flag[xwhat] == 0) {
-                            // 当前事件的上一个事件存在, 并且不存在当前事件, 更新数据，并跳出
-                            flag[xwhat] = timestamp;
-                            flag[MAX_COUNT_BYTE] = xwhat + 1;
-                            break;
-                        }
+                    } else if (xwhat == (flag[1] + 1)) {
+                        // 当前事件为下一个事件, 更新数据并跳出
+                        flag[1] = xwhat;
+                        break;
                     }
                 }
             }
         }
 
-        // 构造结果, 存放总步骤数
-        int result = 0;
+        // 构造结果, 存放最大的事件下标
+        int max_xwhat_index = 0;
         for (int[] flag: temp) {
-            if (result < flag[MAX_COUNT_BYTE]) {
-                result = flag[MAX_COUNT_BYTE];
+            if (max_xwhat_index < flag[1]) {
+                max_xwhat_index = flag[1];
             }
         }
 
         // 返回结果
-        out.writeInt(result);
+        out.writeInt(max_xwhat_index + 1);
         out.closeEntry();
     }
 }

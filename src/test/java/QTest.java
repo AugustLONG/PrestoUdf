@@ -4,12 +4,6 @@
 public class QTest {
 
     public static void main(String argus[]){
-
-        long start = System.currentTimeMillis();
-        for (int j = 0; j < 100000000; ++j) {
-            int a = (j - 50) / 186400;
-        }
-        System.out.println(System.currentTimeMillis() - start);
     }
 }
 
