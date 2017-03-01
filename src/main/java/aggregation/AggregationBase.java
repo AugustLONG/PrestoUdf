@@ -8,7 +8,6 @@ import java.util.*;
 
 /*
 漏斗及留存的基类
-限制条件：查询的事件个数最大为7个
  */
 public class AggregationBase {
 
@@ -96,7 +95,6 @@ public class AggregationBase {
         }
     }
 
-    // =================================================== 漏斗需要 =====================================================
     // 查询漏斗中, 事件和下标的对应关系: {events: {event: index, ...}, ....}
     public static Map<Slice, Map<Slice, Byte>> event_pos_dict = new HashMap<>();
 
@@ -112,6 +110,5 @@ public class AggregationBase {
     }
 
     public static void main(String argus[]){
-
     }
 }

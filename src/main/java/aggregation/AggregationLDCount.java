@@ -30,7 +30,7 @@ and (
 public class AggregationLDCount extends AggregationBase {
 
     private static final int COUNT_ONE_LENGTH = 5;          // input中每个事件所占位数, 包含一个int(时间戳)和一个byte(下标)
-    private static final int COUNT_FLAG_LENGTH = 3 * 4;     // 状态slice最前边的3位存放临时变量, 每个临时变量都为int类型
+    private static final int COUNT_FLAG_LENGTH = 4 * 4;     // 状态slice最前边的4位存放临时变量, 每个临时变量都为int类型
 
     @InputFunction
     public static void input(SliceState state,                                  // 每个用户的状态
@@ -59,9 +59,10 @@ public class AggregationLDCount extends AggregationBase {
             slice = Slices.allocate(COUNT_FLAG_LENGTH + 100 * COUNT_ONE_LENGTH);
 
             // 存放前3位int类型临时变量
-            slice.setInt(0, 100);                   // 第1个int存放剩余个数, 每次-1
-            slice.setInt(4, COUNT_FLAG_LENGTH);     // 第2个int存放当前下标, 每次+5
-            slice.setInt(8, (int) win_length);      // 第3个int存放win_length窗口大小
+            slice.setInt(0, 100);                                   // 第1个int存放剩余个数, 每次-1
+            slice.setInt(4, COUNT_FLAG_LENGTH);                     // 第2个int存放当前下标, 每次+5
+            slice.setInt(8, (int) win_length);                      // 第3个int存放win_length窗口大小
+            slice.setInt(12, event_pos_dict.get(events).size());    // 第4位int存放事件个数
         }
 
         // 获取中间变量
@@ -134,25 +135,25 @@ public class AggregationLDCount extends AggregationBase {
 
         // 获取中间变量
         int win_length = slice.getInt(8);
+        int events_count = slice.getInt(12);
 
-        // 添加中间变量, 尝试提高效率
+        // 添加中间变量, 提高效率
         boolean is_a = false;
-        boolean is_b = false;
 
         // 构造列表和字典, 为下边排序做准备
         List<Integer> time_array = new ArrayList<>();
         Map<Integer, Byte> time_xwhat_map = new HashMap<>();
         for (int i = COUNT_FLAG_LENGTH; i < slice.length(); i += COUNT_ONE_LENGTH) {
             int timestamp = slice.getInt(i);
+
+            // 如果不走combine过程，时间戳可能为0
             if (timestamp <= 0) {
-                // 如果不走combine过程，时间戳可能为0
                 break;
             }
 
             // 获取事件
             byte xwhat = slice.getByte(i + 4);
-            if (xwhat == 0) is_a = true;
-            if (xwhat == 1) is_b = true;
+            if ((!is_a) && xwhat == 0) is_a = true;
 
             // 赋值time_array和time_xwhat_map
             time_array.add(timestamp);
@@ -164,45 +165,40 @@ public class AggregationLDCount extends AggregationBase {
             out.writeInt(0);
             out.closeEntry();
             return;
-        } else if (!is_b) {
-            out.writeInt(1);
-            out.closeEntry();
-            return;
         }
 
         // 排序时间戳数组, 这里可能比较耗时
         Collections.sort(time_array);
 
-        // 遍历时间戳数据
+        // 遍历时间戳数据, 也就是遍历有序的事件, 并构造结果
+        int max_xwhat_index = 0;
         List<int[]> temp = new ArrayList<>();
         for (int timestamp: time_array) {
             // 事件有序进入
             byte xwhat = time_xwhat_map.get(timestamp);
             if (xwhat == 0) {
                 // 新建临时对象, 存放 (A事件的时间戳, 当前最后一个事件的下标)
-                int[] flag = {timestamp, 0};
+                int[] flag = {timestamp, xwhat};
                 temp.add(flag);
             } else {
                 // 更新临时对象: 从后往前, 并根据条件适当跳出
                 for (int i = temp.size() - 1; i >= 0; --i) {
                     int[] flag = temp.get(i);
                     if ((timestamp - flag[0]) >= win_length) {
-                        // 当前事件的时间减去flag[0]不合法, 跳出
+                        // 当前事件的时间减去flag[0]超过时间窗口不合法, 跳出
                         break;
                     } else if (xwhat == (flag[1] + 1)) {
                         // 当前事件为下一个事件, 更新数据并跳出
                         flag[1] = xwhat;
+                        if (max_xwhat_index < xwhat) max_xwhat_index = xwhat;
                         break;
                     }
                 }
-            }
-        }
 
-        // 构造结果, 存放最大的事件下标
-        int max_xwhat_index = 0;
-        for (int[] flag: temp) {
-            if (max_xwhat_index < flag[1]) {
-                max_xwhat_index = flag[1];
+                // 提前退出
+                if ((max_xwhat_index + 1) == events_count) {
+                    break;
+                }
             }
         }
 
