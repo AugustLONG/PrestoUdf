@@ -29,7 +29,7 @@ and (
 @AggregationFunction("ld_count")
 public class AggregationLDCount extends AggregationBase {
 
-    private static final int COUNT_ONE_LENGTH = 5;          // input中每个事件所占位数, 包含一个int(时间戳)和一个byte(下标)
+    private static final int COUNT_ONE_LENGTH = 5;          // input中每个事件所占位数, 包含一个int(时间戳)和一个byte(事件下标)
     private static final int COUNT_FLAG_LENGTH = 4 * 4;     // 状态slice最前边的4位存放临时变量, 每个临时变量都为int类型
 
     @InputFunction
@@ -77,7 +77,7 @@ public class AggregationLDCount extends AggregationBase {
 
             // 更新变量
             slice = slice_new;
-            retained += 50;
+            retained = 50;
         }
 
         // 更新变量--每个事件的时间戳和下标
@@ -133,14 +133,10 @@ public class AggregationLDCount extends AggregationBase {
             return;
         }
 
-        // 获取中间变量
-        int win_length = slice.getInt(8);
-        int events_count = slice.getInt(12);
-
         // 添加中间变量, 提高效率
         boolean is_a = false;
 
-        // 构造列表和字典, 为下边排序做准备
+        // 构造列表和字典, 为排序做准备
         List<Integer> time_array = new ArrayList<>();
         Map<Integer, Byte> time_xwhat_map = new HashMap<>();
         for (int i = COUNT_FLAG_LENGTH; i < slice.length(); i += COUNT_ONE_LENGTH) {
@@ -153,7 +149,9 @@ public class AggregationLDCount extends AggregationBase {
 
             // 获取事件
             byte xwhat = slice.getByte(i + 4);
-            if ((!is_a) && xwhat == 0) is_a = true;
+            if ((!is_a) && xwhat == 0) {
+                is_a = true;
+            }
 
             // 赋值time_array和time_xwhat_map
             time_array.add(timestamp);
@@ -169,6 +167,10 @@ public class AggregationLDCount extends AggregationBase {
 
         // 排序时间戳数组, 这里可能比较耗时
         Collections.sort(time_array);
+
+        // 获取中间变量
+        int win_length = slice.getInt(8);
+        int events_count = slice.getInt(12);
 
         // 遍历时间戳数据, 也就是遍历有序的事件, 并构造结果
         int max_xwhat_index = 0;
@@ -190,7 +192,9 @@ public class AggregationLDCount extends AggregationBase {
                     } else if (xwhat == (flag[1] + 1)) {
                         // 当前事件为下一个事件, 更新数据并跳出
                         flag[1] = xwhat;
-                        if (max_xwhat_index < xwhat) max_xwhat_index = xwhat;
+                        if (max_xwhat_index < xwhat) {
+                            max_xwhat_index = xwhat;
+                        }
                         break;
                     }
                 }
