@@ -38,3 +38,26 @@ TBLPROPERTIES
 
 insert into tablename select * from tablename where ... order by xwhen;
  */
+
+/*
+#!/bin/sh
+
+workDir=`dirname $0`
+workDir=`cd ${workDir};pwd`
+
+work_jar=/tmp/prestoudf-jar-with-dependencies.jar
+dest=/usr/lib/presto/lib/plugin/eg/
+
+for node in `cat ${workDir}/nodes`
+do
+        echo "=============${node}================="
+        ssh ${node} "sudo rm -rf ${dest}/prestoudf-jar-with-dependencies.jar"
+
+        scp -r ${work_jar} root@$node:${dest}
+        ssh ${node} "sudo ls -l ${dest}"
+
+        ssh ${node} "sudo service presto stop"
+        ssh ${node} "sudo service presto start"
+        ssh ${node} "sudo service presto status"
+done
+ */
