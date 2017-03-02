@@ -15,36 +15,23 @@ import java.util.*;
 
 查询12月1号到20号20天, 时间窗口为3天的漏斗:
 select ld_sum(temp, 3) from(
-select ld_count(
-xwhen,
-3*86400000,
-1480521600000, 1482249600000,
-xwhat, 'Action,loggedin,payment') as temp from tablename
-where ds >= '2016-12-01'
-and (
-    (xwhat = 'Action' and ds <= '2016-12-20') or
-    (xwhat in ('loggedin', 'payment') and ds <= '2016-12-22')
-) group by xwho);
+select ld_count(xwhen, 3*86400000, xwhat, 'A,B,C') as temp from tablename
+where ds >= '2016-12-01' and ds <= '2016-12-20' and xwhen >= m and xwhen < n and xwhat in ('A', 'B', 'C')
+group by xwho);
  */
 @AggregationFunction("ld_count")
 public class AggregationLDCount extends AggregationBase {
 
-    private static final int COUNT_ONE_LENGTH = 5;          // input中每个事件所占位数, 包含一个int(时间戳)和一个byte(事件下标)
-    private static final int COUNT_FLAG_LENGTH = 4 * 4;     // 状态slice最前边的4位存放临时变量, 每个临时变量都为int类型
+    private static final int COUNT_ONE_LENGTH = 5;          // 过程input中每个事件所占位数, 包含一个int(时间戳)和一个byte(事件下标)
+    private static final int COUNT_INIT_ONECE = 5;          // 过程input中初始化, 或增大slice时每次增加的个数
+    private static final int COUNT_FLAG_LENGTH = 16;        // 状态slice最前边的4位存放临时变量, 每个临时变量都为int类型
 
     @InputFunction
     public static void input(SliceState state,                                  // 每个用户的状态
                              @SqlType(StandardTypes.BIGINT) long xwhen,         // 当前事件的时间戳, 精确到毫秒
                              @SqlType(StandardTypes.BIGINT) long win_length,    // 当前查询的时间窗口大小, 精确到毫秒
-                             @SqlType(StandardTypes.BIGINT) long start_day,     // 当前查询的起始日期的时间戳, 精确到毫秒
-                             @SqlType(StandardTypes.BIGINT) long end_day,       // 当前查询的结束日期的时间戳, 精确到毫秒
                              @SqlType(StandardTypes.VARCHAR) Slice xwhat,       // 当前事件的名称, A还是B或者C
                              @SqlType(StandardTypes.VARCHAR) Slice events) {    // 当前查询的全部事件, 逗号分隔
-        // 过滤不合适的事件
-        if ((xwhen < start_day) || (xwhen >= end_day)) {
-            return;
-        }
-
         // 获取状态
         Slice slice = state.getSlice();
 
@@ -55,11 +42,11 @@ public class AggregationLDCount extends AggregationBase {
 
         // 初始化某一个用户的state
         if (null == slice) {
-            // 初始化slice, 第一次初始化100个COUNT_ONE_LENGTH
-            slice = Slices.allocate(COUNT_FLAG_LENGTH + 5 * COUNT_ONE_LENGTH);
+            // 初始化slice
+            slice = Slices.allocate(COUNT_FLAG_LENGTH + COUNT_INIT_ONECE * COUNT_ONE_LENGTH);
 
             // 存放前3位int类型临时变量
-            slice.setInt(0, 5);                                   // 第1个int存放剩余个数, 每次-1
+            slice.setInt(0, COUNT_INIT_ONECE);                      // 第1个int存放剩余个数, 每次-1
             slice.setInt(4, COUNT_FLAG_LENGTH);                     // 第2个int存放当前下标, 每次+5
             slice.setInt(8, (int) win_length);                      // 第3个int存放win_length窗口大小
             slice.setInt(12, event_pos_dict.get(events).size());    // 第4位int存放事件个数
@@ -71,13 +58,13 @@ public class AggregationLDCount extends AggregationBase {
 
         // 判断是否需要更新
         if (retained == 0) {
-            // 每次增加50个COUNT_ONE_LENGTH
-            Slice slice_new = Slices.allocate(slice.length() + 5 * COUNT_ONE_LENGTH);
+            // 每次增加COUNT_INIT_ONECE个COUNT_ONE_LENGTH
+            Slice slice_new = Slices.allocate(slice.length() + COUNT_INIT_ONECE * COUNT_ONE_LENGTH);
             slice_new.setBytes(0, slice.getBytes());
 
             // 更新变量
             slice = slice_new;
-            retained = 5;
+            retained = COUNT_INIT_ONECE;
         }
 
         // 更新变量--每个事件的时间戳和下标
