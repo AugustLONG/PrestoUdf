@@ -22,9 +22,8 @@ group by xwho);
 @AggregationFunction("ld_count")
 public class AggregationLDCount extends AggregationBase {
 
-    private static final int COUNT_ONE_LENGTH = 5;          // 过程input中每个事件所占位数, 包含一个int(时间戳)和一个byte(事件下标)
-    private static final int COUNT_INIT_ONECE = 5;          // 过程input中初始化, 或增大slice时每次增加的个数
-    private static final int COUNT_FLAG_LENGTH = 16;        // 状态slice最前边的4位存放临时变量, 每个临时变量都为int类型
+    private static final int COUNT_FLAG_LENGTH = 8;     // 状态slice最前边的2位存放临时变量, 每个临时变量都为int类型
+    private static final int COUNT_ONE_LENGTH = 5;      // input中每个事件所占位数, 包含一个int(时间戳)和一个byte(事件下标)
 
     @InputFunction
     public static void input(SliceState state,                                  // 每个用户的状态
@@ -40,43 +39,35 @@ public class AggregationLDCount extends AggregationBase {
             init_events(events);
         }
 
-        // 初始化某一个用户的state
+        // 计算
         if (null == slice) {
             // 初始化slice
-            slice = Slices.allocate(COUNT_FLAG_LENGTH + COUNT_INIT_ONECE * COUNT_ONE_LENGTH);
+            slice = Slices.allocate(COUNT_FLAG_LENGTH + COUNT_ONE_LENGTH);
 
-            // 存放前3位int类型临时变量
-            slice.setInt(0, COUNT_INIT_ONECE);                      // 第1个int存放剩余个数, 每次-1
-            slice.setInt(4, COUNT_FLAG_LENGTH);                     // 第2个int存放当前下标, 每次+5
-            slice.setInt(8, (int) win_length);                      // 第3个int存放win_length窗口大小
-            slice.setInt(12, event_pos_dict.get(events).size());    // 第4位int存放事件个数
+            // 初始化前2位int类型临时变量: {窗口大小, 事件个数}
+            slice.setInt(0, (int) win_length);
+            slice.setInt(4, event_pos_dict.get(events).size());
+
+            // 更改状态变量
+            slice.setInt(COUNT_FLAG_LENGTH, (int) xwhen);
+            slice.setByte(COUNT_FLAG_LENGTH + 4, event_pos_dict.get(events).get(xwhat));
+
+            // 返回结果
+            state.setSlice(slice);
+        } else {
+            int slice_length = slice.length();
+
+            // 新建slice, 并初始化
+            Slice new_slice = Slices.allocate(slice_length + COUNT_ONE_LENGTH);
+            new_slice.setBytes(0, slice.getBytes());
+
+            // 更改状态变量
+            new_slice.setInt(slice_length, (int) xwhen);
+            new_slice.setByte(slice_length + 4, event_pos_dict.get(events).get(xwhat));
+
+            // 返回结果
+            state.setSlice(new_slice);
         }
-
-        // 获取中间变量
-        int retained = slice.getInt(0);
-        int index = slice.getInt(4);
-
-        // 判断是否需要更新
-        if (retained == 0) {
-            // 每次增加COUNT_INIT_ONECE个COUNT_ONE_LENGTH
-            Slice slice_new = Slices.allocate(slice.length() + COUNT_INIT_ONECE * COUNT_ONE_LENGTH);
-            slice_new.setBytes(0, slice.getBytes());
-
-            // 更新变量
-            slice = slice_new;
-            retained = COUNT_INIT_ONECE;
-        }
-
-        // 更新变量--每个事件的时间戳和下标
-        slice.setInt(index, (int) xwhen);
-        slice.setByte(index + 4, event_pos_dict.get(events).get(xwhat));
-
-        // 更新变量--每个用户的状态
-        slice.setInt(0, retained - 1);
-        slice.setInt(4, index + COUNT_ONE_LENGTH);
-
-        // 返回结果
-        state.setSlice(slice);
     }
 
     @CombineFunction
@@ -87,21 +78,14 @@ public class AggregationLDCount extends AggregationBase {
 
         // 更新状态, 并返回结果
         if (null == slice) {
-            state.setSlice(Slices.copyOf(otherslice, 0, otherslice.getInt(4)));
+            state.setSlice(otherslice);
         } else {
-            // 获取变量
-            int length1 = slice.getInt(4) - COUNT_FLAG_LENGTH;
-            int length2 = otherslice.getInt(4) - COUNT_FLAG_LENGTH;
-
             // 初始化
-            Slice slice_new = Slices.allocate(COUNT_FLAG_LENGTH + length1 + length2);
+            Slice slice_new = Slices.allocate(slice.length() + otherslice.length() - COUNT_FLAG_LENGTH);
 
             // 赋值
-            slice_new.setBytes(0, slice.getBytes(), 0, COUNT_FLAG_LENGTH + length1);
-            slice_new.setBytes(COUNT_FLAG_LENGTH + length1, otherslice.getBytes(), COUNT_FLAG_LENGTH, length2);
-
-            // 更改变量
-            slice_new.setInt(4, slice_new.length());
+            slice_new.setBytes(0, slice.getBytes());
+            slice_new.setBytes(slice.length(), otherslice.getBytes(), COUNT_FLAG_LENGTH, otherslice.length() - COUNT_FLAG_LENGTH);
 
             // 返回结果
             state.setSlice(slice_new);
@@ -120,22 +104,18 @@ public class AggregationLDCount extends AggregationBase {
             return;
         }
 
-        // 添加中间变量, 提高效率
+        // 添加临时变量
         boolean is_a = false;
 
         // 构造列表和字典, 为排序做准备
         List<Integer> time_array = new ArrayList<>();
         Map<Integer, Byte> time_xwhat_map = new HashMap<>();
         for (int i = COUNT_FLAG_LENGTH; i < slice.length(); i += COUNT_ONE_LENGTH) {
+            // 获取事件的时间戳和对应的事件
             int timestamp = slice.getInt(i);
-
-            // 如果不走combine过程，时间戳可能为0
-            if (timestamp <= 0) {
-                break;
-            }
-
-            // 获取事件
             byte xwhat = slice.getByte(i + 4);
+
+            // 更新临时变量
             if ((!is_a) && xwhat == 0) {
                 is_a = true;
             }
@@ -156,10 +136,10 @@ public class AggregationLDCount extends AggregationBase {
         Collections.sort(time_array);
 
         // 获取中间变量
-        int win_length = slice.getInt(8);
-        int events_count = slice.getInt(12);
+        int win_length = slice.getInt(0);
+        int events_count = slice.getInt(4);
 
-        // 遍历时间戳数据, 也就是遍历有序的事件, 并构造结果
+        // 遍历时间戳数据, 也就是遍历有序事件, 并构造结果
         int max_xwhat_index = 0;
         List<int[]> temp = new ArrayList<>();
         for (int timestamp: time_array) {
@@ -174,7 +154,7 @@ public class AggregationLDCount extends AggregationBase {
                 for (int i = temp.size() - 1; i >= 0; --i) {
                     int[] flag = temp.get(i);
                     if ((timestamp - flag[0]) >= win_length) {
-                        // 当前事件的时间减去flag[0]超过时间窗口不合法, 跳出
+                        // 当前事件的时间戳减去flag[0]超过时间窗口不合法, 跳出
                         break;
                     } else if (xwhat == (flag[1] + 1)) {
                         // 当前事件为下一个事件, 更新数据并跳出
@@ -186,7 +166,7 @@ public class AggregationLDCount extends AggregationBase {
                     }
                 }
 
-                // 提前退出
+                // 漏斗流程结束, 提前退出
                 if ((max_xwhat_index + 1) == events_count) {
                     break;
                 }
