@@ -56,10 +56,10 @@ public class AggregationLDCount extends AggregationBase {
         // 初始化某一个用户的state
         if (null == slice) {
             // 初始化slice, 第一次初始化100个COUNT_ONE_LENGTH
-            slice = Slices.allocate(COUNT_FLAG_LENGTH + 100 * COUNT_ONE_LENGTH);
+            slice = Slices.allocate(COUNT_FLAG_LENGTH + 5 * COUNT_ONE_LENGTH);
 
             // 存放前3位int类型临时变量
-            slice.setInt(0, 100);                                   // 第1个int存放剩余个数, 每次-1
+            slice.setInt(0, 5);                                   // 第1个int存放剩余个数, 每次-1
             slice.setInt(4, COUNT_FLAG_LENGTH);                     // 第2个int存放当前下标, 每次+5
             slice.setInt(8, (int) win_length);                      // 第3个int存放win_length窗口大小
             slice.setInt(12, event_pos_dict.get(events).size());    // 第4位int存放事件个数
@@ -72,12 +72,12 @@ public class AggregationLDCount extends AggregationBase {
         // 判断是否需要更新
         if (retained == 0) {
             // 每次增加50个COUNT_ONE_LENGTH
-            Slice slice_new = Slices.allocate(slice.length() + 50 * COUNT_ONE_LENGTH);
+            Slice slice_new = Slices.allocate(slice.length() + 5 * COUNT_ONE_LENGTH);
             slice_new.setBytes(0, slice.getBytes());
 
             // 更新变量
             slice = slice_new;
-            retained = 50;
+            retained = 5;
         }
 
         // 更新变量--每个事件的时间戳和下标
