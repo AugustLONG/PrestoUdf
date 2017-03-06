@@ -14,11 +14,12 @@ import java.util.*;
 计算漏斗的聚合函数, 步骤一
 
 查询12月1号到20号20天, 时间窗口为3天的漏斗:
-select ld_sum(temp, 3) from(
-select ld_count(xwhen, 3*86400000, xwhat, 'A,B,C') as temp from tablename
+select ld_sum(xwho_state, 3) from(
+select ld_count(xwhen, 3*86400000, xwhat, 'A,B,C') as xwho_state
+from tablename
 where ds >= '2016-12-01' and ds <= '2016-12-20' and xwhen >= m and xwhen < n and xwhat in ('A', 'B', 'C')
 group by xwho);
- */
+*/
 @AggregationFunction("ld_count")
 public class AggregationLDCount extends AggregationBase {
 
@@ -27,8 +28,8 @@ public class AggregationLDCount extends AggregationBase {
 
     @InputFunction
     public static void input(SliceState state,                                  // 每个用户的状态
-                             @SqlType(StandardTypes.BIGINT) long xwhen,         // 当前事件的时间戳, 精确到毫秒
-                             @SqlType(StandardTypes.BIGINT) long win_length,    // 当前查询的时间窗口大小, 精确到毫秒
+                             @SqlType(StandardTypes.BIGINT) long xwhen,         // 当前事件的时间戳
+                             @SqlType(StandardTypes.BIGINT) long windows,       // 当前查询的时间窗口大小
                              @SqlType(StandardTypes.VARCHAR) Slice xwhat,       // 当前事件的名称, A还是B或者C
                              @SqlType(StandardTypes.VARCHAR) Slice events) {    // 当前查询的全部事件, 逗号分隔
         // 获取状态
@@ -45,7 +46,7 @@ public class AggregationLDCount extends AggregationBase {
             slice = Slices.allocate(COUNT_FLAG_LENGTH + COUNT_ONE_LENGTH);
 
             // 初始化前2位int类型临时变量: {窗口大小, 事件个数}
-            slice.setInt(0, (int) win_length);
+            slice.setInt(0, (int) windows);
             slice.setInt(4, event_pos_dict.get(events).size());
 
             // 更改状态变量
@@ -80,12 +81,15 @@ public class AggregationLDCount extends AggregationBase {
         if (null == slice) {
             state.setSlice(otherslice);
         } else {
+            int length1 = slice.length();
+            int length2 = otherslice.length();
+
             // 初始化
-            Slice slice_new = Slices.allocate(slice.length() + otherslice.length() - COUNT_FLAG_LENGTH);
+            Slice slice_new = Slices.allocate(length1 + length2 - COUNT_FLAG_LENGTH);
 
             // 赋值
             slice_new.setBytes(0, slice.getBytes());
-            slice_new.setBytes(slice.length(), otherslice.getBytes(), COUNT_FLAG_LENGTH, otherslice.length() - COUNT_FLAG_LENGTH);
+            slice_new.setBytes(length1, otherslice.getBytes(), COUNT_FLAG_LENGTH, length2 - COUNT_FLAG_LENGTH);
 
             // 返回结果
             state.setSlice(slice_new);
@@ -110,10 +114,10 @@ public class AggregationLDCount extends AggregationBase {
         // 构造列表和字典, 为排序做准备
         List<Integer> time_array = new ArrayList<>();
         Map<Integer, Byte> time_xwhat_map = new HashMap<>();
-        for (int i = COUNT_FLAG_LENGTH; i < slice.length(); i += COUNT_ONE_LENGTH) {
+        for (int index = COUNT_FLAG_LENGTH; index < slice.length(); index += COUNT_ONE_LENGTH) {
             // 获取事件的时间戳和对应的事件
-            int timestamp = slice.getInt(i);
-            byte xwhat = slice.getByte(i + 4);
+            int timestamp = slice.getInt(index);
+            byte xwhat = slice.getByte(index + 4);
 
             // 更新临时变量
             if ((!is_a) && xwhat == 0) {
@@ -136,7 +140,7 @@ public class AggregationLDCount extends AggregationBase {
         Collections.sort(time_array);
 
         // 获取中间变量
-        int win_length = slice.getInt(0);
+        int windows = slice.getInt(0);
         int events_count = slice.getInt(4);
 
         // 遍历时间戳数据, 也就是遍历有序事件, 并构造结果
@@ -153,7 +157,7 @@ public class AggregationLDCount extends AggregationBase {
                 // 更新临时对象: 从后往前, 并根据条件适当跳出
                 for (int i = temp.size() - 1; i >= 0; --i) {
                     int[] flag = temp.get(i);
-                    if ((timestamp - flag[0]) >= win_length) {
+                    if ((timestamp - flag[0]) >= windows) {
                         // 当前事件的时间戳减去flag[0]超过时间窗口不合法, 跳出
                         break;
                     } else if (xwhat == (flag[1] + 1)) {

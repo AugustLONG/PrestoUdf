@@ -10,8 +10,14 @@ public class QTest {
 /*
 项目打包, 并发送jar包到etl服务器
 ~/Maven/bin/mvn clean compile assembly:assembly
+
+测试服务器1
 scp target/prestoudf-jar-with-dependencies.jar isuhadoop@192.168.220.145:/tmp
 /usr/lib/presto/bin/presto-cli --catalog hive --server 192.168.220.136:8285
+
+测试服务器2
+scp target/prestoudf-jar-with-dependencies.jar isuhadoop@192.168.0.36:/tmp
+/usr/lib/presto/bin/presto-cli --catalog hive --server 192.168.0.31:8285
 
 优化参数
 set session processing_optimization='columnar';
@@ -29,7 +35,7 @@ PARTITIONED BY (
   `appid` string,
   `ds` string,
   `xwhat` string)
-stored as orc
+stored as Parquet
 TBLPROPERTIES
 ('orc.create.index'='true',
 "orc.compress"="SNAPPY",
@@ -37,7 +43,7 @@ TBLPROPERTIES
 "orc.row.index.stride"="10000")
 
 insert into tablename select * from tablename where ... order by xwhen;
- */
+*/
 
 /*
 #!/bin/sh
@@ -50,14 +56,14 @@ dest=/usr/lib/presto/lib/plugin/eg/
 
 for node in `cat ${workDir}/nodes`
 do
-        echo "=============${node}================="
-        ssh ${node} "sudo rm -rf ${dest}/prestoudf-jar-with-dependencies.jar"
+    echo "=============${node}================="
+    ssh ${node} "sudo rm -rf ${dest}/prestoudf-jar-with-dependencies.jar"
 
-        scp -r ${work_jar} root@$node:${dest}
-        ssh ${node} "sudo ls -l ${dest}"
+    scp -r ${work_jar} root@$node:${dest}
+    ssh ${node} "sudo ls -l ${dest}"
 
-        ssh ${node} "sudo service presto stop"
-        ssh ${node} "sudo service presto start"
-        ssh ${node} "sudo service presto status"
+    ssh ${node} "sudo service presto stop"
+    ssh ${node} "sudo service presto start"
+    ssh ${node} "sudo service presto status"
 done
- */
+*/
