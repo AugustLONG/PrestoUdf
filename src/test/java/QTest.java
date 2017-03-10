@@ -4,6 +4,7 @@
 public class QTest {
 
     public static void main(String argus[]){
+
     }
 }
 
@@ -23,7 +24,7 @@ scp target/prestoudf-jar-with-dependencies.jar isuhadoop@192.168.0.36:/tmp
 set session processing_optimization='columnar';
 set session optimize_metadata_queries=true;
 set session task_concurrency=32;
-*/
+ */
 
 /*
 CREATE TABLE `tablename`(
@@ -43,7 +44,7 @@ TBLPROPERTIES
 "orc.row.index.stride"="10000")
 
 insert into tablename select * from tablename where ... order by xwhen;
-*/
+ */
 
 /*
 #!/bin/sh
@@ -66,4 +67,4 @@ do
     ssh ${node} "sudo service presto start"
     ssh ${node} "sudo service presto status"
 done
-*/
+ */

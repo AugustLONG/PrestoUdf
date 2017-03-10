@@ -12,7 +12,7 @@ import io.airlift.slice.Slices;
 
 /*
 计算漏斗的聚合函数, 步骤二
-*/
+ */
 @AggregationFunction("ld_sum")
 public class AggregationLDSum extends AggregationBase {
 

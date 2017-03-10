@@ -108,7 +108,4 @@ public class AggregationBase {
         }
         event_pos_dict.put(events, pos_dict);
     }
-
-    public static void main(String argus[]){
-    }
 }

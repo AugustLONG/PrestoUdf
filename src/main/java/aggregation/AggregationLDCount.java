@@ -19,7 +19,7 @@ select ld_count(xwhen, 3*86400000, xwhat, 'A,B,C') as xwho_state
 from tablename
 where ds >= '2016-12-01' and ds <= '2016-12-20' and xwhen >= m and xwhen < n and xwhat in ('A', 'B', 'C')
 group by xwho);
-*/
+ */
 @AggregationFunction("ld_count")
 public class AggregationLDCount extends AggregationBase {
 
