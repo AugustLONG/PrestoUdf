@@ -95,17 +95,30 @@ public class AggregationBase {
         }
     }
 
-    // 查询漏斗中, 事件和下标的对应关系: {events: {event: index, ...}, ....}
+    // 事件和下标的对应关系: {events: {event: index, ...}, ....}
     public static Map<Slice, Map<Slice, Byte>> event_pos_dict = new HashMap<>();
 
-    // 查询漏斗中, 初始化事件(最多7个事件)
-    public static void init_events(Slice events) {
+    // 起始事件和下标的对应关系: {events: {event: index, ...}, ....}
+    public static Map<Slice, Map<Slice, Byte>> event_pos_dict_start = new HashMap<>();
+
+    // 结束事件和下标的对应关系: {events: {event: index, ...}, ....}
+    public static Map<Slice, Map<Slice, Byte>> event_pos_dict_end = new HashMap<>();
+
+    // 初始化事件和下标的对应关系, flag为0、1或2
+    public static void init_events(Slice events, int flag) {
         List<String> fs = Arrays.asList(new String(events.getBytes()).split(","));
 
         Map<Slice, Byte> pos_dict = new HashMap<>();
         for (byte i = 0; i < fs.size(); ++i) {
             pos_dict.put(Slices.utf8Slice(fs.get(i)), i);
         }
-        event_pos_dict.put(events, pos_dict);
+
+        if (flag == 0) {
+            event_pos_dict.put(events, pos_dict);
+        } else if (flag == 1) {
+            event_pos_dict_start.put(events, pos_dict);
+        } else {
+            event_pos_dict_end.put(events, pos_dict);
+        }
     }
 }

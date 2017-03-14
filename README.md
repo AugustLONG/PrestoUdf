@@ -1,1 +1,1 @@
-calculate funnel and retention using presto udaf
+# calculate funnel and retention using presto udaf

@@ -22,9 +22,9 @@ select lc_sum(temp, 7, 30) from(
 select lc_count(
 date_diff('day', from_iso8601_timestamp('2007-01-01'), from_unixtime(xwhen)),
 date_diff('day', from_iso8601_timestamp('2007-01-01'), from_iso8601_timestamp('2016-12-01')),
-7, 30, xwhat, 'Action,payment') as temp from tablename
-where (ds >= '2016-12-01' and ds < '2016-12-08' and xwhat = 'Action') or
-    (ds >= '2016-12-02' and ds < '2016-12-29' and xwhat = 'payment')
+7, 30, xwhat, 'A', 'B') as temp from tablename
+where (ds >= '2016-12-01' and ds < '2016-12-08' and xwhat = 'A') or
+    (ds >= '2016-12-02' and ds < '2016-12-29' and xwhat = 'B')
 group by xwho);
 
 查询12月5号开始3周, 往后推2周的周留存
@@ -32,9 +32,9 @@ select lc_sum(temp, 3, 2) from(
 select lc_count(
 date_diff('week', from_iso8601_timestamp('2007-01-01'), from_unixtime(xwhen)),
 date_diff('week', from_iso8601_timestamp('2007-01-01'), from_iso8601_timestamp('2016-12-05')),
-3, 2, xwhat, 'Action,payment') as temp from tablename
-where (ds >= '2016-12-05' and ds < '2016-12-26' and xwhat = 'Action') or
-    (ds >= '2016-12-12' and ds < '2016-12-29' and xwhat = 'payment')
+3, 2, xwhat, 'A', 'B') as temp from tablename
+where (ds >= '2016-12-05' and ds < '2016-12-26' and xwhat = 'A') or
+    (ds >= '2016-12-12' and ds < '2016-12-29' and xwhat = 'B')
 group by xwho);
  */
 @AggregationFunction("lc_count")
@@ -46,18 +46,24 @@ public class AggregationLCCount extends AggregationBase {
 
     @InputFunction
     public static void input(SliceState state,                                      // 每个用户的状态
-                             @SqlType(StandardTypes.BIGINT) long xwhen,             // 当前事件的时间戳距离某固定日期的差值
+                             @SqlType(StandardTypes.BIGINT) long xwhen,             // 当前事件的事件距离某固定日期的差值
                              @SqlType(StandardTypes.BIGINT) long xwhen_start,       // 当前查询的起始日期距离某固定日期的差值
-                             @SqlType(StandardTypes.INTEGER) long base_length,      // 当前查询的base长度(15天, 12周, 6月)
-                             @SqlType(StandardTypes.INTEGER) long sub_length,       // 当前查询的sub长度(30天, 8周, 3月)
+                             @SqlType(StandardTypes.INTEGER) long first_length,     // 当前查询的first长度(15天, 12周, 6月)
+                             @SqlType(StandardTypes.INTEGER) long second_length,    // 当前查询的second长度(30天, 8周, 3月)
                              @SqlType(StandardTypes.VARCHAR) Slice xwhat,           // 当前事件的名称, A还是B
-                             @SqlType(StandardTypes.VARCHAR) Slice events) {        // 当前查询的全部事件, 逗号分隔
+                             @SqlType(StandardTypes.VARCHAR) Slice events_start,    // 当前查询的起始事件, 逗号分隔
+                             @SqlType(StandardTypes.VARCHAR) Slice events_end) {    // 当前查询的结束事件, 逗号分隔
         // 获取状态
         Slice slice = state.getSlice();
 
         // 判断是否需要初始化events
-        if (!event_pos_dict.containsKey(events)) {
-            init_events(events);
+        if (!event_pos_dict_start.containsKey(events_start)) {
+            init_events(events_start, 1);
+        }
+
+        // 判断是否需要初始化events
+        if (!event_pos_dict_end.containsKey(events_end)) {
+            init_events(events_end, 2);
         }
 
         // 初始化某一个用户的state, 分别存放不同事件在每个时间段的标示
@@ -65,41 +71,37 @@ public class AggregationLCCount extends AggregationBase {
             slice = Slices.allocate(FIRST + SECOND);
         }
 
-        int xwhat_index = event_pos_dict.get(events).get(xwhat);
-        if (xwhat_index == 0) {
-            int xindex_max = (int) base_length - 1;
+        // 判读是否为起始事件
+        if (event_pos_dict_start.get(events_start).containsKey(xwhat)) {
+            int xindex_max = (int) first_length - 1;
 
             // 获取用户在当前index的状态
             short current_value = slice.getShort(0);
-            if (current_value >= max_value_array_short.get(xindex_max)) {
-                return;
+            if (current_value < max_value_array_short.get(xindex_max)) {
+                // 获取下标
+                int xindex = (int) (xwhen - xwhen_start);
+                if (xindex >= 0 && xindex <= xindex_max) {
+                    // 更新状态
+                    slice.setShort(0, current_value | bit_array_short.get(xindex));
+                }
             }
 
-            // 获取下标
-            int xindex = (int) (xwhen - xwhen_start);
-            if (xindex < 0 || xindex > xindex_max) {
-                return;
-            }
+        }
 
-            // 更新状态
-            slice.setShort(0, current_value | bit_array_short.get(xindex));
-        } else {
-            int xindex_max = (int) (base_length + sub_length - 1) - 1;
+        // 判断是否为结束事件
+        if (event_pos_dict_end.get(events_end).containsKey(xwhat)) {
+            int xindex_max = (int) (first_length + second_length - 1) - 1;
 
             // 获取用户在当前index的状态
             long current_value = slice.getLong(INDEX);
-            if (current_value >= max_value_array_long.get(xindex_max)) {
-                return;
+            if (current_value < max_value_array_long.get(xindex_max)) {
+                // 获取下标
+                int xindex = (int) (xwhen - (xwhen_start + 1));
+                if (xindex >= 0 && xindex <= xindex_max) {
+                    // 更新状态
+                    slice.setLong(INDEX, current_value | bit_array_long.get(xindex));
+                }
             }
-
-            // 获取下标
-            int xindex = (int) (xwhen - (xwhen_start + 1));
-            if (xindex < 0 || xindex > xindex_max) {
-                return;
-            }
-
-            // 更新状态
-            slice.setLong(INDEX, current_value | bit_array_long.get(xindex));
         }
 
         // 返回结果
