@@ -95,16 +95,16 @@ public class AggregationBase {
         }
     }
 
-    // 事件和下标的对应关系: {events: {event: index, ...}, ....}
+    // 事件和下标的对应关系: {events: {event: index, ...}, ....}, 对应flag为0
     public static Map<Slice, Map<Slice, Byte>> event_pos_dict = new HashMap<>();
 
-    // 起始事件和下标的对应关系: {events: {event: index, ...}, ....}
+    // 起始事件和下标的对应关系: {events: {event: index, ...}, ....}, 对应flag为1
     public static Map<Slice, Map<Slice, Byte>> event_pos_dict_start = new HashMap<>();
 
-    // 结束事件和下标的对应关系: {events: {event: index, ...}, ....}
+    // 结束事件和下标的对应关系: {events: {event: index, ...}, ....}, 对应flag为2
     public static Map<Slice, Map<Slice, Byte>> event_pos_dict_end = new HashMap<>();
 
-    // 初始化事件和下标的对应关系, flag为0、1或2
+    // 初始化事件和下标的对应关系, flag为0、1或2, flag含义参见上边
     public static void init_events(Slice events, int flag) {
         List<String> fs = Arrays.asList(new String(events.getBytes()).split(","));
 
@@ -117,7 +117,7 @@ public class AggregationBase {
             event_pos_dict.put(events, pos_dict);
         } else if (flag == 1) {
             event_pos_dict_start.put(events, pos_dict);
-        } else {
+        } else if (flag == 2) {
             event_pos_dict_end.put(events, pos_dict);
         }
     }

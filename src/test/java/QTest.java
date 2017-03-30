@@ -10,7 +10,7 @@ public class QTest {
 
 /*
 项目打包, 并发送jar包到etl服务器
-~/Maven/bin/mvn clean compile assembly:assembly
+/usr/local/Cellar/maven/3.3.9/bin/mvn clean compile assembly:assembly
 
 测试服务器1
 scp target/prestoudf-jar-with-dependencies.jar isuhadoop@192.168.220.145:/tmp

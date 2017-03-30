@@ -13,11 +13,11 @@ import java.util.*;
 /*
 计算漏斗的聚合函数, 步骤一
 
-查询12月1号到20号20天, 时间窗口为3天的漏斗:
+查询12月1号到20号20天, 时间窗口为7天, 事件个数为3个的漏斗:
 select ld_sum(xwho_state, 3) from(
-select ld_count(xwhen, 3*86400000, xwhat, 'A,B,C') as xwho_state
+select ld_count(xwhen, 7*86400000, xwhat, 'A,B,C') as xwho_state
 from tablename
-where ds >= '2016-12-01' and ds <= '2016-12-20' and xwhen >= m and xwhen < n and xwhat in ('A', 'B', 'C')
+where ds >= '2016-12-01' and ds < '2016-12-21' and xwhat in ('A', 'B', 'C')
 group by xwho);
  */
 @AggregationFunction("ld_count")
@@ -37,7 +37,7 @@ public class AggregationLDCount extends AggregationBase {
 
         // 判断是否需要初始化events
         if (!event_pos_dict.containsKey(events)) {
-            init_events(events);
+            init_events(events, 0);
         }
 
         // 计算

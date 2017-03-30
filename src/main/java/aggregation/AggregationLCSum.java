@@ -21,7 +21,7 @@ public class AggregationLCSum extends AggregationBase {
 
     @InputFunction
     public static void input(SliceState state,
-                             @SqlType("array(" + StandardTypes.BIGINT + ")") Block xwho_count,  // 每个用户的状态
+                             @SqlType("array(" + StandardTypes.BIGINT + ")") Block xwho_state,  // 每个用户的状态
                              @SqlType(StandardTypes.INTEGER) long first_length,         // 当前查询的first长度(15, 12, 6)
                              @SqlType(StandardTypes.INTEGER) long second_length) {      // 当前查询的second长度(30, 8, 3)
         // 获取状态
@@ -33,8 +33,8 @@ public class AggregationLCSum extends AggregationBase {
         }
 
         // 获取值
-        long first_value = (long) readNativeValue(BigintType.BIGINT, xwho_count, 0);
-        long second_value = (long) readNativeValue(BigintType.BIGINT, xwho_count, 1);
+        long first_value = (long) readNativeValue(BigintType.BIGINT, xwho_state, 0);
+        long second_value = (long) readNativeValue(BigintType.BIGINT, xwho_state, 1);
 
         // 计算状态
         for (int i = 0; i < first_length; ++i) {

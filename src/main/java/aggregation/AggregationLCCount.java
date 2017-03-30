@@ -17,24 +17,17 @@ import io.airlift.slice.Slices;
 2. 周留存最大 12 * 8
 3. 月留存最大 6 * 3
 
-查询12月1号开始7天, 往后推30天的日留存
-select lc_sum(temp, 7, 30) from(
+注: 2007-01-01正好为一个周的第一天，且为一个月的第一天
+
+查询12月1号开始7天, 往后推15天的日留存
+select lc_sum(xwho_state, 7, 15) from(
 select lc_count(
 date_diff('day', from_iso8601_timestamp('2007-01-01'), from_unixtime(xwhen)),
 date_diff('day', from_iso8601_timestamp('2007-01-01'), from_iso8601_timestamp('2016-12-01')),
-7, 30, xwhat, 'A', 'B') as temp from tablename
-where (ds >= '2016-12-01' and ds < '2016-12-08' and xwhat = 'A') or
-    (ds >= '2016-12-02' and ds < '2016-12-29' and xwhat = 'B')
-group by xwho);
-
-查询12月5号开始3周, 往后推2周的周留存
-select lc_sum(temp, 3, 2) from(
-select lc_count(
-date_diff('week', from_iso8601_timestamp('2007-01-01'), from_unixtime(xwhen)),
-date_diff('week', from_iso8601_timestamp('2007-01-01'), from_iso8601_timestamp('2016-12-05')),
-3, 2, xwhat, 'A', 'B') as temp from tablename
-where (ds >= '2016-12-05' and ds < '2016-12-26' and xwhat = 'A') or
-    (ds >= '2016-12-12' and ds < '2016-12-29' and xwhat = 'B')
+7, 15, xwhat, 'A,B', 'C,D') as xwho_state
+from tablename
+where (ds >= '2016-12-01' and ds < '2016-12-08' and xwhat in ('A', 'B')) or
+    (ds >= '2016-12-02' and ds < '2016-12-23' and xwhat in ('C', 'D'))
 group by xwho);
  */
 @AggregationFunction("lc_count")
@@ -50,9 +43,9 @@ public class AggregationLCCount extends AggregationBase {
                              @SqlType(StandardTypes.BIGINT) long xwhen_start,       // 当前查询的起始日期距离某固定日期的差值
                              @SqlType(StandardTypes.INTEGER) long first_length,     // 当前查询的first长度(15天, 12周, 6月)
                              @SqlType(StandardTypes.INTEGER) long second_length,    // 当前查询的second长度(30天, 8周, 3月)
-                             @SqlType(StandardTypes.VARCHAR) Slice xwhat,           // 当前事件的名称, A还是B
-                             @SqlType(StandardTypes.VARCHAR) Slice events_start,    // 当前查询的起始事件, 逗号分隔
-                             @SqlType(StandardTypes.VARCHAR) Slice events_end) {    // 当前查询的结束事件, 逗号分隔
+                             @SqlType(StandardTypes.VARCHAR) Slice xwhat,           // 当前事件的名称, A,B,C,D
+                             @SqlType(StandardTypes.VARCHAR) Slice events_start,    // 当前查询的起始事件列表, 逗号分隔
+                             @SqlType(StandardTypes.VARCHAR) Slice events_end) {    // 当前查询的结束事件列表, 逗号分隔
         // 获取状态
         Slice slice = state.getSlice();
 
